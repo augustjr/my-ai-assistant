@@ -48,22 +48,13 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 2. เรียก Gemini รองรับทั้ง AQ... และ AIzaSy...
+      // 2. เรียกผ่าน Google Cloud Gemini REST API
       const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
       const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
 
-      const headers = { 'Content-Type': 'application/json' };
-      let url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
-
-      if (apiKey.startsWith('AQ')) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
-      } else {
-        url += `?key=${apiKey}`;
-      }
-
-      const geminiRes = await fetch(url, {
+      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
-        headers: headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }]
         })
@@ -72,7 +63,7 @@ module.exports = async (req, res) => {
       const geminiData = await geminiRes.json();
       let aiReplyText = "ขออภัย ไม่สามารถประมวลผลคำตอบได้ในขณะนี้";
 
-      if (geminiData.candidates && geminiData.candidates[0].content.parts[0].text) {
+      if (geminiData.candidates && geminiData.candidates[0].content && geminiData.candidates[0].content.parts[0].text) {
         aiReplyText = geminiData.candidates[0].content.parts[0].text;
       } else if (geminiData.error) {
         aiReplyText = `API Error: ${geminiData.error.message}`;
