@@ -32,7 +32,7 @@ module.exports = async (req, res) => {
 
     try {
       // 1. ดึงข้อมูลจาก Supabase
-      const { data: articles, error: dbError } = await supabase
+      const { data: articles } = await supabase
         .from('articles')
         .select('title, content, category, image_url')
         .limit(3);
@@ -50,12 +50,26 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 2. ส่งให้ Gemini 1.5 Flash ตอบ
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      // 2. เรียกโมเดล Gemini (ทดลอง gemini-1.5-pro หรือ gemini-1.5-flash-8b)
       const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
+      
+      let aiReplyText = "";
+      const modelNames = ["gemini-1.5-pro", "gemini-1.5-flash-8b", "gemini-pro"];
 
-      const result = await model.generateContent(prompt);
-      const aiReplyText = result.response.text();
+      for (const name of modelNames) {
+        try {
+          const model = genAI.getGenerativeModel({ model: name });
+          const result = await model.generateContent(prompt);
+          aiReplyText = result.response.text();
+          if (aiReplyText) break;
+        } catch (e) {
+          console.log(`Failed with ${name}, trying next...`);
+        }
+      }
+
+      if (!aiReplyText) {
+        aiReplyText = "ขออภัย ไม่สามารถประมวลผลคำตอบได้ในขณะนี้";
+      }
 
       const replyMessages = [{ type: 'text', text: aiReplyText }];
 
@@ -76,7 +90,7 @@ module.exports = async (req, res) => {
       console.error("Error detail:", err);
       return await lineClient.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `Error: ${err.message || 'ประมวลผลไม่สำเร็จ'}` }]
+        messages: [{ type: 'text', text: `เกิดข้อผิดพลาด: ${err.message}` }]
       });
     }
   }));
