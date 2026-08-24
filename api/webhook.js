@@ -1,6 +1,5 @@
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
-const { GoogleGenAI } = require('@google/genai');
 
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -12,7 +11,6 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const lineClient = new line.messagingApi.MessagingApiClient(lineConfig);
 
 module.exports = async (req, res) => {
@@ -50,15 +48,29 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 2. เรียกโมเดล Gemini
+      // 2. ส่งคำถามไปหา Gemini ผ่าน Native Fetch REST API
       const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
+      const apiKey = process.env.GEMINI_API_KEY.trim();
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash',
-        contents: prompt
+      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
       });
 
-      const replyMessages = [{ type: 'text', text: response.text }];
+      const geminiData = await geminiRes.json();
+      let aiReplyText = "ขออภัย ไม่สามารถประมวลผลคำตอบได้ในขณะนี้";
+
+      if (geminiData.candidates && geminiData.candidates[0].content.parts[0].text) {
+        aiReplyText = geminiData.candidates[0].content.parts[0].text;
+      } else if (geminiData.error) {
+        console.error("Gemini API Error:", geminiData.error);
+        aiReplyText = `Gemini Error: ${geminiData.error.message}`;
+      }
+
+      const replyMessages = [{ type: 'text', text: aiReplyText }];
 
       if (imageUrl && (imageUrl.endsWith('.jpg') || imageUrl.endsWith('.png'))) {
         replyMessages.push({
