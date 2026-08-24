@@ -48,13 +48,22 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 2. เรียกผ่าน Google Cloud Gemini REST API
+      // 2. เรียก Gemini รองรับทั้ง AQ... และ AIzaSy...
       const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
-      const apiKey = process.env.GEMINI_API_KEY.trim();
+      const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
 
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+      const headers = { 'Content-Type': 'application/json' };
+      let url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+
+      if (apiKey.startsWith('AQ')) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      } else {
+        url += `?key=${apiKey}`;
+      }
+
+      const geminiRes = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers,
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }]
         })
