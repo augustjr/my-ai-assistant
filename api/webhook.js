@@ -1,6 +1,6 @@
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -12,7 +12,7 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const lineClient = new line.messagingApi.MessagingApiClient(lineConfig);
 
 module.exports = async (req, res) => {
@@ -50,14 +50,15 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 2. เรียก Gemini 1.5 Flash
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      // 2. เรียกโมเดล Gemini
       const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
 
-      const result = await model.generateContent(prompt);
-      const aiReplyText = result.response.text();
+      const response = await ai.models.generateContent({
+        model: 'gemini-1.5-flash',
+        contents: prompt
+      });
 
-      const replyMessages = [{ type: 'text', text: aiReplyText }];
+      const replyMessages = [{ type: 'text', text: response.text }];
 
       if (imageUrl && (imageUrl.endsWith('.jpg') || imageUrl.endsWith('.png'))) {
         replyMessages.push({
