@@ -12,7 +12,7 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY.trim());
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '');
 const lineClient = new line.messagingApi.MessagingApiClient(lineConfig);
 
 module.exports = async (req, res) => {
@@ -50,26 +50,12 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 2. เรียกโมเดล Gemini (ทดลอง gemini-1.5-pro หรือ gemini-1.5-flash-8b)
+      // 2. เรียกโมเดล Gemini
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
       const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
-      
-      let aiReplyText = "";
-      const modelNames = ["gemini-1.5-pro", "gemini-1.5-flash-8b", "gemini-pro"];
 
-      for (const name of modelNames) {
-        try {
-          const model = genAI.getGenerativeModel({ model: name });
-          const result = await model.generateContent(prompt);
-          aiReplyText = result.response.text();
-          if (aiReplyText) break;
-        } catch (e) {
-          console.log(`Failed with ${name}, trying next...`);
-        }
-      }
-
-      if (!aiReplyText) {
-        aiReplyText = "ขออภัย ไม่สามารถประมวลผลคำตอบได้ในขณะนี้";
-      }
+      const result = await model.generateContent(prompt);
+      const aiReplyText = result.response.text();
 
       const replyMessages = [{ type: 'text', text: aiReplyText }];
 
@@ -88,9 +74,10 @@ module.exports = async (req, res) => {
 
     } catch (err) {
       console.error("Error detail:", err);
+      // ส่ง Error ละเอียดกลับมาดูทันที
       return await lineClient.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `เกิดข้อผิดพลาด: ${err.message}` }]
+        messages: [{ type: 'text', text: `Debug Error: ${err.message || JSON.stringify(err)}` }]
       });
     }
   }));
