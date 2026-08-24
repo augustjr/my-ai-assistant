@@ -1,6 +1,6 @@
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
-const { GoogleGenAI } = require('@google/genai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -12,7 +12,7 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const lineClient = new line.messagingApi.MessagingApiClient(lineConfig);
 
 module.exports = async (req, res) => {
@@ -30,7 +30,7 @@ module.exports = async (req, res) => {
 
     const userQuestion = event.message.text.trim();
 
-    // ค้นหาข้อมูลบทความจาก Supabase
+    // ดึงข้อมูลจาก Supabase
     const { data: articles } = await supabase
       .from('articles')
       .select('title, content, category, image_url')
@@ -49,21 +49,20 @@ module.exports = async (req, res) => {
       }
     }
 
-    // ส่งคำถามและ Context เข้า Google Gemini API
-    const prompt = `[ข้อมูลบทความจาก Supabase]:\n${contextText}\n\n-------------------------\nคำถามของผู้ใช้งาน: ${userQuestion}`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        systemInstruction: 'คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล Supabase ตอบกระชับ สุภาพ ไม่แต่งข้อมูลเอง หากไม่มีข้อมูลให้ตอบว่าไม่พบข้อมูลในระบบ',
-        temperature: 0.2
-      }
+    // เรียก Gemini Model
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      systemInstruction: "คุณคือผู้ช่วยค้นหาบทความ ตอบคำถามจากข้อมูลบทความที่ได้รับเท่านั้น สุภาพ กระชับ ไม่แต่งข้อมูลเอง หากไม่มีข้อมูลให้ตอบว่าไม่พบข้อมูลในระบบ"
     });
 
-    const replyMessages = [{ type: 'text', text: response.text }];
+    const prompt = `[ข้อมูลบทความจาก Supabase]:\n${contextText}\n\n-------------------------\nคำถามของผู้ใช้งาน: ${userQuestion}`;
 
-    // แนบรูปภาพหากมี
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const aiReplyText = response.text();
+
+    const replyMessages = [{ type: 'text', text: aiReplyText }];
+
     if (imageUrl && (imageUrl.endsWith('.jpg') || imageUrl.endsWith('.png'))) {
       replyMessages.push({
         type: 'image',
