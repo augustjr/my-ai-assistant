@@ -1,5 +1,6 @@
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -11,37 +12,8 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY.trim());
 const lineClient = new line.messagingApi.MessagingApiClient(lineConfig);
-
-async function callGeminiAPI(apiKey, prompt) {
-  const models = [
-    'gemini-1.5-flash-001',
-    'gemini-1.5-flash-002',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro',
-    'gemini-2.0-flash-exp'
-  ];
-
-  for (const model of models) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
-        })
-      });
-
-      const data = await res.json();
-      if (data.candidates && data.candidates[0].content.parts[0].text) {
-        return data.candidates[0].content.parts[0].text;
-      }
-    } catch (e) {
-      // ลองโมเดลถัดไป
-    }
-  }
-  return "ขออภัย ขณะนี้ระบบประมวลผลคำตอบขัดข้อง กรุณาลองใหม่อีกครั้ง";
-}
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -60,7 +32,7 @@ module.exports = async (req, res) => {
 
     try {
       // 1. ดึงข้อมูลจาก Supabase
-      const { data: articles } = await supabase
+      const { data: articles, error: dbError } = await supabase
         .from('articles')
         .select('title, content, category, image_url')
         .limit(3);
@@ -78,11 +50,12 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 2. เรียก Gemini ด้วยฟังก์ชัน Fallback
+      // 2. ส่งให้ Gemini 1.5 Flash ตอบ
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
-      const apiKey = process.env.GEMINI_API_KEY.trim();
 
-      const aiReplyText = await callGeminiAPI(apiKey, prompt);
+      const result = await model.generateContent(prompt);
+      const aiReplyText = result.response.text();
 
       const replyMessages = [{ type: 'text', text: aiReplyText }];
 
@@ -103,7 +76,7 @@ module.exports = async (req, res) => {
       console.error("Error detail:", err);
       return await lineClient.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: 'เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง' }]
+        messages: [{ type: 'text', text: `Error: ${err.message || 'ประมวลผลไม่สำเร็จ'}` }]
       });
     }
   }));
