@@ -1,15 +1,9 @@
 const line = require('@line/bot-sdk');
-const { createClient } = require('@supabase/supabase-js');
 
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET
 };
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
-);
 
 const lineClient = new line.messagingApi.MessagingApiClient(lineConfig);
 
@@ -26,69 +20,33 @@ module.exports = async (req, res) => {
   await Promise.all(events.map(async (event) => {
     if (event.type !== 'message' || event.message.type !== 'text') return;
 
-    const userQuestion = event.message.text.trim();
-
     try {
-      // 1. ดึงข้อมูลจาก Supabase
-      const { data: articles } = await supabase
-        .from('articles')
-        .select('title, content, category, image_url')
-        .limit(3);
-
-      let contextText = "ไม่พบบทความในระบบ";
-      let imageUrl = null;
-
-      if (articles && articles.length > 0) {
-        contextText = articles.map(a => 
-          `หัวข้อ: ${a.title}\nหมวดหมู่: ${a.category}\nเนื้อหา: ${a.content}\nลิงก์รูปภาพ: ${a.image_url || '-'}`
-        ).join('\n---\n');
-
-        if (articles[0].image_url && articles[0].image_url.startsWith('http')) {
-          imageUrl = articles[0].image_url;
-        }
-      }
-
-      // 2. เรียกผ่าน Google Cloud Gemini REST API
-      const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
       const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
+      
+      // ดึงรายชื่อโมเดลทั้งหมดที่ API Key ตัวนี้ใช้งานได้
+      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+      const listData = await listRes.json();
 
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
-        })
-      });
-
-      const geminiData = await geminiRes.json();
-      let aiReplyText = "ขออภัย ไม่สามารถประมวลผลคำตอบได้ในขณะนี้";
-
-      if (geminiData.candidates && geminiData.candidates[0].content && geminiData.candidates[0].content.parts[0].text) {
-        aiReplyText = geminiData.candidates[0].content.parts[0].text;
-      } else if (geminiData.error) {
-        aiReplyText = `API Error: ${geminiData.error.message}`;
-      }
-
-      const replyMessages = [{ type: 'text', text: aiReplyText }];
-
-      if (imageUrl && (imageUrl.endsWith('.jpg') || imageUrl.endsWith('.png'))) {
-        replyMessages.push({
-          type: 'image',
-          originalContentUrl: imageUrl,
-          previewImageUrl: imageUrl
-        });
+      let replyMsg = '';
+      if (listData.models) {
+        const supported = listData.models
+          .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+          .map(m => m.name.replace('models/', ''));
+        
+        replyMsg = `โมเดลที่ใช้งานได้:\n` + supported.slice(0, 5).join('\n');
+      } else {
+        replyMsg = `Error: ${JSON.stringify(listData)}`;
       }
 
       return await lineClient.replyMessage({
         replyToken: event.replyToken,
-        messages: replyMessages
+        messages: [{ type: 'text', text: replyMsg }]
       });
 
     } catch (err) {
-      console.error("Error detail:", err);
       return await lineClient.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `เกิดข้อผิดพลาด: ${err.message}` }]
+        messages: [{ type: 'text', text: `Debug Error: ${err.message}` }]
       });
     }
   }));
