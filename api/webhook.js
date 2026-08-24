@@ -1,6 +1,5 @@
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -12,7 +11,6 @@ const supabase = createClient(
   process.env.SUPABASE_ANON_KEY
 );
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '');
 const lineClient = new line.messagingApi.MessagingApiClient(lineConfig);
 
 module.exports = async (req, res) => {
@@ -50,12 +48,26 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 2. เรียกโมเดล Gemini
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+      // 2. เรียกผ่าน Google Cloud Gemini REST API
       const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
+      const apiKey = process.env.GEMINI_API_KEY.trim();
 
-      const result = await model.generateContent(prompt);
-      const aiReplyText = result.response.text();
+      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      });
+
+      const geminiData = await geminiRes.json();
+      let aiReplyText = "ขออภัย ไม่สามารถประมวลผลคำตอบได้ในขณะนี้";
+
+      if (geminiData.candidates && geminiData.candidates[0].content.parts[0].text) {
+        aiReplyText = geminiData.candidates[0].content.parts[0].text;
+      } else if (geminiData.error) {
+        aiReplyText = `API Error: ${geminiData.error.message}`;
+      }
 
       const replyMessages = [{ type: 'text', text: aiReplyText }];
 
@@ -74,10 +86,9 @@ module.exports = async (req, res) => {
 
     } catch (err) {
       console.error("Error detail:", err);
-      // ส่ง Error ละเอียดกลับมาดูทันที
       return await lineClient.replyMessage({
         replyToken: event.replyToken,
-        messages: [{ type: 'text', text: `Debug Error: ${err.message || JSON.stringify(err)}` }]
+        messages: [{ type: 'text', text: `เกิดข้อผิดพลาด: ${err.message}` }]
       });
     }
   }));
