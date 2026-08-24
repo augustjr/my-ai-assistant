@@ -48,11 +48,11 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 2. เรียกใช้งานโมเดล gemini-2.5-flash
+      // 2. เรียกใช้งานโมเดล gemini-3.6-flash
       const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
       const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
 
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -71,7 +71,6 @@ module.exports = async (req, res) => {
 
       const replyMessages = [{ type: 'text', text: aiReplyText }];
 
-      // ส่งรูปภาพแนบไปด้วยถ้ามี URL รูปภาพที่ถูกต้อง
       if (imageUrl && (imageUrl.endsWith('.jpg') || imageUrl.endsWith('.png'))) {
         replyMessages.push({
           type: 'image',
