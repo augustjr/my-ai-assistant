@@ -1,5 +1,6 @@
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
+const { GoogleGenAI } = require('@google/genai');
 
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -23,13 +24,15 @@ module.exports = async (req, res) => {
     return res.status(200).send('OK');
   }
 
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
   await Promise.all(events.map(async (event) => {
     if (event.type !== 'message' || event.message.type !== 'text') return;
 
     const userQuestion = event.message.text.trim();
 
     try {
-      // 1. ดึงข้อมูลจากฐานข้อมูล Supabase
+      // ดึงข้อมูลจาก Supabase
       const { data: articles } = await supabase
         .from('articles')
         .select('title, content, category, image_url')
@@ -48,27 +51,14 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 2. เรียกใช้งานโมเดล gemini-3.6-flash
       const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
-      const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
 
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
-        })
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt
       });
 
-      const geminiData = await geminiRes.json();
-      let aiReplyText = "ขออภัย ไม่สามารถประมวลผลคำตอบได้ในขณะนี้";
-
-      if (geminiData.candidates && geminiData.candidates[0].content && geminiData.candidates[0].content.parts[0].text) {
-        aiReplyText = geminiData.candidates[0].content.parts[0].text;
-      } else if (geminiData.error) {
-        aiReplyText = `API Error: ${geminiData.error.message}`;
-      }
-
+      const aiReplyText = response.text || "ขออภัย ไม่สามารถประมวลผลคำตอบได้";
       const replyMessages = [{ type: 'text', text: aiReplyText }];
 
       if (imageUrl && (imageUrl.endsWith('.jpg') || imageUrl.endsWith('.png'))) {
