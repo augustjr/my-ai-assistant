@@ -13,6 +13,36 @@ const supabase = createClient(
 
 const lineClient = new line.messagingApi.MessagingApiClient(lineConfig);
 
+async function callGeminiAPI(apiKey, prompt) {
+  const models = [
+    'gemini-1.5-flash-001',
+    'gemini-1.5-flash-002',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro',
+    'gemini-2.0-flash-exp'
+  ];
+
+  for (const model of models) {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      });
+
+      const data = await res.json();
+      if (data.candidates && data.candidates[0].content.parts[0].text) {
+        return data.candidates[0].content.parts[0].text;
+      }
+    } catch (e) {
+      // ลองโมเดลถัดไป
+    }
+  }
+  return "ขออภัย ขณะนี้ระบบประมวลผลคำตอบขัดข้อง กรุณาลองใหม่อีกครั้ง";
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(200).send('Webhook Ready');
@@ -48,27 +78,11 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 2. ส่งคำถามไปหา Gemini ผ่าน Native Fetch REST API
+      // 2. เรียก Gemini ด้วยฟังก์ชัน Fallback
       const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
       const apiKey = process.env.GEMINI_API_KEY.trim();
 
-      const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
-        })
-      });
-
-      const geminiData = await geminiRes.json();
-      let aiReplyText = "ขออภัย ไม่สามารถประมวลผลคำตอบได้ในขณะนี้";
-
-      if (geminiData.candidates && geminiData.candidates[0].content.parts[0].text) {
-        aiReplyText = geminiData.candidates[0].content.parts[0].text;
-      } else if (geminiData.error) {
-        console.error("Gemini API Error:", geminiData.error);
-        aiReplyText = `Gemini Error: ${geminiData.error.message}`;
-      }
+      const aiReplyText = await callGeminiAPI(apiKey, prompt);
 
       const replyMessages = [{ type: 'text', text: aiReplyText }];
 
