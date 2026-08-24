@@ -1,0 +1,10 @@
+{
+  "name": "line-gemini-supabase-bot",
+  "version": "1.0.0",
+  "main": "api/webhook.js",
+  "dependencies": {
+    "@google/genai": "^0.1.1",
+    "@line/bot-sdk": "^9.0.0",
+    "@supabase/supabase-js": "^2.45.0"
+  }
+}
