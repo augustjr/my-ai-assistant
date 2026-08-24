@@ -30,51 +30,55 @@ module.exports = async (req, res) => {
 
     const userQuestion = event.message.text.trim();
 
-    // ดึงข้อมูลจาก Supabase
-    const { data: articles } = await supabase
-      .from('articles')
-      .select('title, content, category, image_url')
-      .limit(3);
+    try {
+      // 1. ดึงข้อมูลจาก Supabase
+      const { data: articles } = await supabase
+        .from('articles')
+        .select('title, content, category, image_url')
+        .limit(3);
 
-    let contextText = "ไม่พบบทความในระบบ";
-    let imageUrl = null;
+      let contextText = "ไม่พบบทความในระบบ";
+      let imageUrl = null;
 
-    if (articles && articles.length > 0) {
-      contextText = articles.map(a => 
-        `หัวข้อ: ${a.title}\nหมวดหมู่: ${a.category}\nเนื้อหา: ${a.content}\nลิงก์รูปภาพ: ${a.image_url || '-'}`
-      ).join('\n---\n');
+      if (articles && articles.length > 0) {
+        contextText = articles.map(a => 
+          `หัวข้อ: ${a.title}\nหมวดหมู่: ${a.category}\nเนื้อหา: ${a.content}\nลิงก์รูปภาพ: ${a.image_url || '-'}`
+        ).join('\n---\n');
 
-      if (articles[0].image_url && articles[0].image_url.startsWith('http')) {
-        imageUrl = articles[0].image_url;
+        if (articles[0].image_url && articles[0].image_url.startsWith('http')) {
+          imageUrl = articles[0].image_url;
+        }
       }
-    }
 
-    // เรียก Gemini Model
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash",
-      systemInstruction: "คุณคือผู้ช่วยค้นหาบทความ ตอบคำถามจากข้อมูลบทความที่ได้รับเท่านั้น สุภาพ กระชับ ไม่แต่งข้อมูลเอง หากไม่มีข้อมูลให้ตอบว่าไม่พบข้อมูลในระบบ"
-    });
+      // 2. เรียก Gemini 1.5 Flash
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const prompt = `คุณคือผู้ช่วยตอบคำถามจากฐานข้อมูล ตอบกระชับ สุภาพ\nข้อมูลอ้างอิง:\n${contextText}\n\nคำถาม: ${userQuestion}`;
 
-    const prompt = `[ข้อมูลบทความจาก Supabase]:\n${contextText}\n\n-------------------------\nคำถามของผู้ใช้งาน: ${userQuestion}`;
+      const result = await model.generateContent(prompt);
+      const aiReplyText = result.response.text();
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const aiReplyText = response.text();
+      const replyMessages = [{ type: 'text', text: aiReplyText }];
 
-    const replyMessages = [{ type: 'text', text: aiReplyText }];
+      if (imageUrl && (imageUrl.endsWith('.jpg') || imageUrl.endsWith('.png'))) {
+        replyMessages.push({
+          type: 'image',
+          originalContentUrl: imageUrl,
+          previewImageUrl: imageUrl
+        });
+      }
 
-    if (imageUrl && (imageUrl.endsWith('.jpg') || imageUrl.endsWith('.png'))) {
-      replyMessages.push({
-        type: 'image',
-        originalContentUrl: imageUrl,
-        previewImageUrl: imageUrl
+      return await lineClient.replyMessage({
+        replyToken: event.replyToken,
+        messages: replyMessages
+      });
+
+    } catch (err) {
+      console.error("Error detail:", err);
+      return await lineClient.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{ type: 'text', text: 'เกิดข้อผิดพลาดในการประมวลผล กรุณาลองใหม่อีกครั้ง' }]
       });
     }
-
-    return lineClient.replyMessage({
-      replyToken: event.replyToken,
-      messages: replyMessages
-    });
   }));
 
   res.status(200).json({ status: 'success' });
