@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "api/webhook.js",
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "@line/bot-sdk": "^9.0.0",
     "@supabase/supabase-js": "^2.45.0"
   }
